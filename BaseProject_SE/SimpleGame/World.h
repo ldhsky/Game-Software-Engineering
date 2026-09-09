@@ -36,9 +36,12 @@ struct Npc
 	bool isElder;
 	float phase;
 	float r, g, b;
+	unsigned char build;   // 0 마름 1 보통 2 다부짐
+	unsigned char hat;     // 0 없음 1 두건 2 챙모자 3 후드
+	bool child;
 };
 
-const int NPC_COUNT = 9;
+const int NPC_COUNT = 18;
 const int FIELD_RECORD_COUNT = 8;
 
 class World
@@ -76,3 +79,5 @@ const char* const* World_ElderDone(int* count);
 const char* World_FieldRecord(int idx);
 int  World_RoadY(int wx);
 int  World_RoadX(int wy);
+float World_GroundTone(float x, float y);
+float World_Detail(float x, float y);

@@ -49,6 +49,13 @@ int main(int argc, char** argv)
 	glutInitWindowPosition(60, 30);
 	glutInitWindowSize(WIN_W, WIN_H);
 	glutCreateWindow("Ledger of Equal Value - Tutorial Level");
+
+	// 창 제목을 한글로 — freeglut은 ANSI만 받으므로 직접 설정한다
+	{
+		HWND hwnd = FindWindowA(NULL, "Ledger of Equal Value - Tutorial Level");
+		if (!hwnd) hwnd = GetActiveWindow();
+		if (hwnd) SetWindowTextW(hwnd, L"등가의 장부 — 튜토리얼 레벨");
+	}
 	glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
 
 	if (glewInit() != GLEW_OK)

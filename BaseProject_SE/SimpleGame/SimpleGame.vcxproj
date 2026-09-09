@@ -163,6 +163,8 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Actors.h" />
+    <ClInclude Include="Char.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="Iso.h" />
     <ClInclude Include="Renderer.h" />
@@ -172,6 +174,8 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Actors.cpp" />
+    <ClCompile Include="Char.cpp" />
     <ClCompile Include="Game.cpp" />
     <ClCompile Include="Renderer.cpp" />
     <ClCompile Include="Text.cpp" />

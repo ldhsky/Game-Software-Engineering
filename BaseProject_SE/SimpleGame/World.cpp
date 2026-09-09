@@ -31,6 +31,10 @@ static float FBM(float x, float y, int s)
 		+ Noise(x * 4.3f, y * 4.3f, s + 67) * 0.15f;
 }
 
+// 타일 경계를 넘어 이어지는 부드러운 색 변주 — 정점 색으로 사용해 모자이크감을 없앤다
+float World_GroundTone(float x, float y) { return FBM(x * 0.085f, y * 0.085f, 201); }
+float World_Detail(float x, float y) { return FBM(x * 0.34f, y * 0.34f, 307); }
+
 /* ---------- 길 ---------- */
 
 // 길은 완만하게 휜다 — 따라가면 계속 새 지역이 나온다.
@@ -90,6 +94,46 @@ static const char* L_SCRIBE[] = {
 	"누군가 적어둔 것이 남아 있다면, 그건 아직 정산되지 않은 겁니다.",
 };
 
+static const char* L_MILLER[] = {
+	"작년과 같은 양이 나왔습니다. 씨를 반만 뿌렸는데도.",
+	"길드에 신고했더니 '이득은 접수 대상이 아니다'라더군요.",
+};
+static const char* L_WASHER[] = {
+	"이 옷의 주인이 누구였는지 아무도 몰라요.",
+	"빨래는 계속 나옵니다. 입는 사람은 줄었는데.",
+};
+static const char* L_CRONE[] = {
+	"나는 세 번 값을 치렀소.",
+	"세 번 다 무엇을 냈는지 몰라. 그래서 아직 살아 있는 거겠지.",
+	"젊은이, 자네도 이미 냈군. 눈이 그렇게 생겼어.",
+};
+static const char* L_HUNTER[] = {
+	"숲에 늑대가 늘었소. 사람을 겁내지 않아.",
+	"겁낼 것을 기억하지 못하는 거요. 그것도 빠져나간 거지.",
+};
+static const char* L_INNKEEP[] = {
+	"방은 있습니다. 손님이 줄었으니.",
+	"이름을 장부에 적어주십시오. …적을 수 있으면.",
+};
+static const char* L_SHEPHERD[] = {
+	"양이 스물여섯 마리였는데 지금도 스물여섯이에요.",
+	"어제 두 마리가 죽었는데도요. 세면 항상 스물여섯이에요.",
+};
+static const char* L_MINER[] = {
+	"갱도 아래에 글자가 새겨져 있소. 우리 글이 아니오.",
+	"읽으면 잊습니다. 그래서 매일 다시 읽으러 갑니다.",
+};
+static const char* L_COPYIST[] = {
+	"환산표를 베끼는 일을 합니다. 틀린 것을 그대로 베끼죠.",
+	"고치면 원본과 달라지니까요. 규정입니다.",
+	"…가끔은 원본이 밤새 스스로 바뀝니다.",
+};
+static const char* L_WANDERER[] = {
+	"길을 따라가면 마을이 또 나옵니다. 아마도.",
+	"나는 어디서 왔는지 기억하지 못해요. 값은 아직 치르지 않았는데.",
+	"장부 조각을 보면 주우십시오. 그게 누군가 남긴 전부입니다.",
+};
+
 static const char* FIELD_RECORDS[FIELD_RECORD_COUNT] = {
 	"[장부 조각] 대장간 아들을 되찾았다. 이후 그 집 쇠는 식지 않는다.",
 	"[장부 조각] 눈먼 노파가 앞을 보게 되었다. 마을의 우물이 마른 날이다.",
@@ -125,15 +169,25 @@ static bool InVillage(int wx, int wy)
 void World::Init()
 {
 	int i = 0;
-	npcs[i++] = { 0.f,  -2.5f, "촌장",     0,           0, -1, true,  0.0f, 0.88f, 0.82f, 0.62f };
-	npcs[i++] = { -11.f, 10.5f, "어부",     L_FISHER,    4,  0, false, 1.1f, 0.55f, 0.72f, 0.74f };
-	npcs[i++] = { 12.f,  7.f,  "나무꾼",   L_WOODSMAN,  3,  1, false, 2.3f, 0.64f, 0.52f, 0.36f };
-	npcs[i++] = { 3.4f,  1.2f, "아이",     L_CHILD,     3,  2, false, 0.7f, 0.82f, 0.76f, 0.56f };
-	npcs[i++] = { -4.2f, 0.4f, "대장장이", L_SMITH,     2, -1, false, 3.1f, 0.60f, 0.44f, 0.38f };
-	npcs[i++] = { 1.8f, -1.4f, "행상인",   L_PEDDLER,   3, -1, false, 1.7f, 0.74f, 0.62f, 0.32f };
-	npcs[i++] = { -1.6f, 2.8f, "사제",     L_PRIEST,    2, -1, false, 2.7f, 0.70f, 0.70f, 0.76f };
-	npcs[i++] = { 0.6f, -6.2f, "순찰병",   L_GUARD,     2, -1, false, 0.4f, 0.46f, 0.52f, 0.50f };
-	npcs[i++] = { -2.4f,-3.2f, "서기",     L_SCRIBE,    2, -1, false, 2.1f, 0.66f, 0.60f, 0.72f };
+	//              x       y      이름         대사        수  기록 촌장  위상  색(r,g,b)                 체격 모자 아이
+	npcs[i++] = {  0.0f, -2.5f, "촌장",     0,          0, -1, true,  0.0f, 0.62f, 0.50f, 0.34f, 1, 2, false };
+	npcs[i++] = { -11.0f,10.5f, "어부",     L_FISHER,   4,  0, false, 1.1f, 0.30f, 0.42f, 0.46f, 1, 1, false };
+	npcs[i++] = {  12.0f, 7.0f, "나무꾼",   L_WOODSMAN, 3,  1, false, 2.3f, 0.40f, 0.30f, 0.20f, 2, 1, false };
+	npcs[i++] = {   3.4f, 1.2f, "아이",     L_CHILD,    3,  2, false, 0.7f, 0.52f, 0.46f, 0.30f, 0, 0, true  };
+	npcs[i++] = {  -4.2f, 0.4f, "대장장이", L_SMITH,    2, -1, false, 3.1f, 0.34f, 0.24f, 0.20f, 2, 1, false };
+	npcs[i++] = {   1.8f,-1.4f, "행상인",   L_PEDDLER,  3, -1, false, 1.7f, 0.46f, 0.34f, 0.16f, 1, 2, false };
+	npcs[i++] = {  -1.6f, 2.8f, "사제",     L_PRIEST,   2, -1, false, 2.7f, 0.30f, 0.30f, 0.36f, 1, 3, false };
+	npcs[i++] = {   0.6f,-6.2f, "순찰병",   L_GUARD,    2, -1, false, 0.4f, 0.22f, 0.26f, 0.28f, 2, 0, false };
+	npcs[i++] = {  -2.4f,-3.2f, "서기",     L_SCRIBE,   2, -1, false, 2.1f, 0.32f, 0.28f, 0.40f, 0, 3, false };
+	npcs[i++] = {   5.6f, 3.4f, "방앗간 주인", L_MILLER,2, -1, false, 1.3f, 0.44f, 0.40f, 0.30f, 2, 1, false };
+	npcs[i++] = {  -7.4f, 6.2f, "빨래하는 여인", L_WASHER,2,-1, false, 2.9f, 0.36f, 0.32f, 0.40f, 0, 1, false };
+	npcs[i++] = {   2.2f, 5.8f, "노파",     L_CRONE,    3, -1, false, 0.9f, 0.26f, 0.24f, 0.26f, 0, 1, false };
+	npcs[i++] = {   6.8f,-4.6f, "사냥꾼",   L_HUNTER,   2, -1, false, 3.6f, 0.28f, 0.30f, 0.22f, 1, 3, false };
+	npcs[i++] = {  -5.8f,-5.4f, "여관 주인", L_INNKEEP, 2, -1, false, 1.9f, 0.42f, 0.28f, 0.22f, 2, 0, false };
+	npcs[i++] = {  -9.2f, 1.6f, "목동",     L_SHEPHERD, 2, -1, false, 2.5f, 0.34f, 0.38f, 0.26f, 0, 2, true  };
+	npcs[i++] = {   9.4f, 1.2f, "광부",     L_MINER,    2, -1, false, 0.2f, 0.24f, 0.24f, 0.26f, 2, 2, false };
+	npcs[i++] = {  -3.0f, 8.4f, "필경사",   L_COPYIST,  3, -1, false, 3.3f, 0.30f, 0.26f, 0.34f, 0, 0, false };
+	npcs[i++] = {   8.2f,-8.6f, "떠돌이",   L_WANDERER, 3, -1, false, 1.5f, 0.26f, 0.22f, 0.24f, 1, 3, false };
 }
 
 World::~World()
