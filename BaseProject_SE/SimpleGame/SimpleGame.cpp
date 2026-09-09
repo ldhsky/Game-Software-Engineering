@@ -1,89 +1,83 @@
-/*
-Copyright 2022 Lee Taek Hee (Tech University of Korea)
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the What The Hell License. Do it plz.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY.
+﻿/*
+등가의 장부 — 튜토리얼 레벨 프로토타입
+베이스: SimpleGame (Copyright 2022 Lee Taek Hee, Tech University of Korea)
 */
 
 #include "stdafx.h"
 #include <iostream>
+#include <windows.h>
+
 #include "Dependencies\glew.h"
 #include "Dependencies\freeglut.h"
 
 #include "Renderer.h"
+#include "Game.h"
 
-Renderer *g_Renderer = NULL;
+const int WIN_W = 1280;
+const int WIN_H = 800;
+
+Renderer* g_Renderer = NULL;
+Game* g_Game = NULL;
+int g_PrevTimeMs = 0;
 
 void RenderScene(void)
 {
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glClearColor(0.0f, 0.3f, 0.3f, 1.0f);
-
-	// Renderer Test
-	g_Renderer->DrawSolidRect(0, 0, 0, 4, 1, 0, 1, 1);
-
+	if (g_Game) g_Game->Render();
 	glutSwapBuffers();
 }
 
 void Idle(void)
 {
-	RenderScene();
+	int now = glutGet(GLUT_ELAPSED_TIME);
+	float dt = (now - g_PrevTimeMs) / 1000.f;
+	g_PrevTimeMs = now;
+	if (dt > 0.1f) dt = 0.1f;      // 프레임 튐 방지
+
+	if (g_Game) g_Game->Update(dt);
+	glutPostRedisplay();           // 렌더는 디스플레이 콜백에서만
 }
 
-void MouseInput(int button, int state, int x, int y)
-{
-	RenderScene();
-}
+void KeyDown(unsigned char key, int x, int y) { if (g_Game) g_Game->OnKeyDown(key); }
+void KeyUp(unsigned char key, int x, int y) { if (g_Game) g_Game->OnKeyUp(key); }
 
-void KeyInput(unsigned char key, int x, int y)
+int main(int argc, char** argv)
 {
-	RenderScene();
-}
+	SetConsoleOutputCP(CP_UTF8);   // 콘솔 한글 출력
 
-void SpecialKeyInput(int key, int x, int y)
-{
-	RenderScene();
-}
-
-int main(int argc, char **argv)
-{
-	// Initialize GL things
 	glutInit(&argc, argv);
-	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
-	glutInitWindowPosition(0, 0);
-	glutInitWindowSize(500, 500);
-	glutCreateWindow("Game Software Engineering KPU");
+	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+	glutInitWindowPosition(60, 40);
+	glutInitWindowSize(WIN_W, WIN_H);
+	glutCreateWindow("Ledger of Equal Value - Tutorial Level");
+	glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
 
-	glewInit();
-	if (glewIsSupported("GL_VERSION_3_0"))
+	if (glewInit() != GLEW_OK)
 	{
-		std::cout << " GLEW Version is 3.0\n ";
-	}
-	else
-	{
-		std::cout << "GLEW 3.0 not supported\n ";
+		std::cout << "GLEW 초기화 실패\n";
+		return 1;
 	}
 
-	// Initialize Renderer
-	g_Renderer = new Renderer(500, 500);
+	g_Renderer = new Renderer(WIN_W, WIN_H);
 	if (!g_Renderer->IsInitialized())
 	{
-		std::cout << "Renderer could not be initialized.. \n";
+		std::cout << "렌더러 초기화 실패 — 셰이더 경로를 확인하십시오.\n";
+		delete g_Renderer;
+		return 1;
 	}
 
+	g_Game = new Game();
+	g_Game->Init(g_Renderer, WIN_W, WIN_H);
+
+	glutIgnoreKeyRepeat(1);
 	glutDisplayFunc(RenderScene);
 	glutIdleFunc(Idle);
-	glutKeyboardFunc(KeyInput);
-	glutMouseFunc(MouseInput);
-	glutSpecialFunc(SpecialKeyInput);
+	glutKeyboardFunc(KeyDown);
+	glutKeyboardUpFunc(KeyUp);
 
+	g_PrevTimeMs = glutGet(GLUT_ELAPSED_TIME);
 	glutMainLoop();
 
+	delete g_Game;
 	delete g_Renderer;
-
-    return 0;
+	return 0;
 }
-
