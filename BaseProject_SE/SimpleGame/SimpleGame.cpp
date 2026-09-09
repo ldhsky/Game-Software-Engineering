@@ -31,10 +31,10 @@ void Idle(void)
 	int now = glutGet(GLUT_ELAPSED_TIME);
 	float dt = (now - g_PrevTimeMs) / 1000.f;
 	g_PrevTimeMs = now;
-	if (dt > 0.1f) dt = 0.1f;      // 프레임 튐 방지
+	if (dt > 0.1f) dt = 0.1f;
 
 	if (g_Game) g_Game->Update(dt);
-	glutPostRedisplay();           // 렌더는 디스플레이 콜백에서만
+	glutPostRedisplay();
 }
 
 void KeyDown(unsigned char key, int x, int y) { if (g_Game) g_Game->OnKeyDown(key); }
@@ -42,11 +42,11 @@ void KeyUp(unsigned char key, int x, int y) { if (g_Game) g_Game->OnKeyUp(key); 
 
 int main(int argc, char** argv)
 {
-	SetConsoleOutputCP(CP_UTF8);   // 콘솔 한글 출력
+	SetConsoleOutputCP(CP_UTF8);
 
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
-	glutInitWindowPosition(60, 40);
+	glutInitWindowPosition(60, 30);
 	glutInitWindowSize(WIN_W, WIN_H);
 	glutCreateWindow("Ledger of Equal Value - Tutorial Level");
 	glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
@@ -60,7 +60,7 @@ int main(int argc, char** argv)
 	g_Renderer = new Renderer(WIN_W, WIN_H);
 	if (!g_Renderer->IsInitialized())
 	{
-		std::cout << "렌더러 초기화 실패 — 셰이더 경로를 확인하십시오.\n";
+		std::cout << "렌더러 초기화 실패 — Shaders 폴더 경로를 확인하십시오.\n";
 		delete g_Renderer;
 		return 1;
 	}
@@ -77,6 +77,7 @@ int main(int argc, char** argv)
 	g_PrevTimeMs = glutGet(GLUT_ELAPSED_TIME);
 	glutMainLoop();
 
+	g_Game->Shutdown();
 	delete g_Game;
 	delete g_Renderer;
 	return 0;

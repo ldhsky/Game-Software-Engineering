@@ -1,41 +1,78 @@
 ﻿#pragma once
 
-// 튜토리얼 레벨 — 작은 마을, 주변의 숲과 호수.
-enum TileType
+#include <unordered_map>
+#include <unordered_set>
+
+// 청크 단위로 필요할 때 생성하는 무한 절차적 월드.
+// 원점 주변이 마을(수작업 배치), 그 밖은 절차 생성.
+const int CHUNK = 32;
+
+enum Ground : unsigned char
 {
-	T_GRASS = 0, T_PATH, T_PLAZA, T_WATER, T_SHORE, T_TREE, T_HOUSE, T_FENCE, T_WELL
+	G_GRASS = 0, G_DIRT, G_PATH, G_PLAZA, G_WATER, G_SHORE, G_MARSH
 };
 
-const int MAP_W = 48;
-const int MAP_H = 48;
+enum Obj : unsigned char
+{
+	O_NONE = 0, O_TREE, O_PINE, O_HOUSE, O_FENCE, O_WELL, O_ROCK,
+	O_TUFT, O_FLOWER, O_REED, O_STUMP, O_LAMP, O_RUIN, O_CRATE
+};
+
+struct Chunk
+{
+	int cx, cy;
+	unsigned char g[CHUNK * CHUNK];
+	unsigned char o[CHUNK * CHUNK];
+	unsigned char v[CHUNK * CHUNK];   // 변주값 (색·크기 흔들림)
+};
 
 struct Npc
 {
-	float hx, hy;              // 고정 위치 (월드 격자)
-	const char* label;         // 화면 표기 (ASCII — 화면 텍스트는 비트맵 폰트라 한글 불가)
-	const char* const* lines;  // 대사 (콘솔 출력, 한글)
+	float hx, hy;
+	const char* name;              // 표시 이름 (한글)
+	const char* const* lines;
 	int lineCount;
-	int recordId;              // 0..2 = 결손 기록 대상, -1 = 아님
-	bool isElder;              // 보고 대상
-	float phase;               // 제자리 흔들림 위상
-	float r, g, b;             // 표시 색
+	int recordId;                  // 0..2 마을 결손 기록, -1 아님
+	bool isElder;
+	float phase;
+	float r, g, b;
 };
 
-const int NPC_COUNT = 8;
+const int NPC_COUNT = 9;
+const int FIELD_RECORD_COUNT = 8;
 
 class World
 {
 public:
-	void Generate();
-	unsigned char At(int x, int y) const;
-	bool Blocked(int x, int y) const;
-	float Height(int x, int y) const;    // 타일 위 구조물 높이 (0 = 평지)
+	void Init();
+	~World();
+
+	void EnsureAround(float wx, float wy, int radiusChunks);
+
+	unsigned char G(int wx, int wy);
+	unsigned char O(int wx, int wy);
+	unsigned char V(int wx, int wy);
+	bool Blocked(int wx, int wy);
+
+	bool TakeRuin(int wx, int wy, int* recordIdx);
+	int LoadedChunks() const { return (int)m_Map.size(); }
 
 	Npc npcs[NPC_COUNT];
 
-	static const int START_X = 24;
-	static const int START_Y = 26;
+	static const int START_X = 0;
+	static const int START_Y = 4;
 
 private:
-	unsigned char m_Tiles[MAP_H][MAP_W];
+	Chunk* Get(int cx, int cy);
+	Chunk* Generate(int cx, int cy);
+	void ApplyVillage(Chunk* c);
+
+	std::unordered_map<long long, Chunk*> m_Map;
+	std::unordered_set<long long> m_Taken;
 };
+
+const char* const* World_ElderIntro(int* count);
+const char* const* World_ElderDone(int* count);
+const char* World_FieldRecord(int idx);
+int  World_RoadY(int wx);
+int  World_RoadX(int wy);
