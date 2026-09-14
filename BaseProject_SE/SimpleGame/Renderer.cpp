@@ -11,7 +11,8 @@ Renderer::Renderer(int windowSizeX, int windowSizeY)
 {
 	m_W = windowSizeX;
 	m_H = windowSizeY;
-	m_SV.reserve(FLUSH_LIMIT);
+	m_SVCap = FLUSH_LIMIT;
+	m_SVBuf = new float[m_SVCap];
 	m_GV.reserve(8 * 8192);
 	Initialize();
 }
@@ -30,6 +31,10 @@ Renderer::~Renderer()
 	if (m_SceneTex) glDeleteTextures(1, &m_SceneTex);
 	if (m_FBO) glDeleteFramebuffers(1, &m_FBO);
 	if (m_Atlas) glDeleteTextures(1, &m_Atlas);
+	if (m_BloomTex) glDeleteTextures(1, &m_BloomTex);
+	if (m_BloomFBO) glDeleteFramebuffers(1, &m_BloomFBO);
+	if (m_BloomProg) glDeleteProgram(m_BloomProg);
+	delete[] m_SVBuf;
 }
 
 void Renderer::Initialize()
@@ -37,7 +42,8 @@ void Renderer::Initialize()
 	m_ShapeProg = CompileShaders("./Shaders/Shape.vs", "./Shaders/Shape.fs");
 	m_GlyphProg = CompileShaders("./Shaders/Glyph.vs", "./Shaders/Glyph.fs");
 	m_PostProg = CompileShaders("./Shaders/Post.vs", "./Shaders/Post.fs");
-	if (!m_ShapeProg || !m_GlyphProg || !m_PostProg) return;
+	m_BloomProg = CompileShaders("./Shaders/Post.vs", "./Shaders/Bloom.fs");
+	if (!m_ShapeProg || !m_GlyphProg || !m_PostProg || !m_BloomProg) return;
 
 	m_uShapeVP = glGetUniformLocation(m_ShapeProg, "u_HalfViewport");
 	m_uGlyphVP = glGetUniformLocation(m_GlyphProg, "u_HalfViewport");
@@ -47,8 +53,11 @@ void Renderer::Initialize()
 	m_uFilter = glGetUniformLocation(m_PostProg, "u_Filter");
 	m_uTime = glGetUniformLocation(m_PostProg, "u_Time");
 	m_uExposure = glGetUniformLocation(m_PostProg, "u_Exposure");
-	m_uBloomAmt = glGetUniformLocation(m_PostProg, "u_Bloom");
+	m_uBloomAmt = glGetUniformLocation(m_PostProg, "u_BloomAmt");
 	m_uFade = glGetUniformLocation(m_PostProg, "u_Fade");
+	m_uPostBloom = glGetUniformLocation(m_PostProg, "u_Bloom");
+	m_uBlScene = glGetUniformLocation(m_BloomProg, "u_Scene");
+	m_uBlTexel = glGetUniformLocation(m_BloomProg, "u_Texel");
 
 	glGenVertexArrays(1, &m_ShapeVAO);
 	glGenBuffers(1, &m_ShapeVBO);
@@ -116,6 +125,27 @@ bool Renderer::CreateTargets()
 	if (st != GL_FRAMEBUFFER_COMPLETE)
 	{
 		std::cout << "프레임버퍼 생성 실패 (0x" << std::hex << st << ")\n";
+		return false;
+	}
+
+	// 블룸은 1/4 해상도에서 처리한다 — 전체 해상도 다중 탭보다 훨씬 싸다
+	m_BW = m_W / 4; m_BH = m_H / 4;
+	glGenTextures(1, &m_BloomTex);
+	glBindTexture(GL_TEXTURE_2D, m_BloomTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_BW, m_BH, 0, GL_RGBA, GL_FLOAT, 0);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glGenFramebuffers(1, &m_BloomFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_BloomFBO);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_BloomTex, 0);
+	st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if (st != GL_FRAMEBUFFER_COMPLETE)
+	{
+		std::cout << "블룸 버퍼 생성 실패\n";
 		return false;
 	}
 	return true;
@@ -198,23 +228,35 @@ void Renderer::EndFrame()
 {
 	Flush();
 
-	// 후처리 통과
+	glDisable(GL_BLEND);
+	glBindVertexArray(m_PostVAO);
+
+	// 1) 1/4 해상도 블룸 추출
+	glBindFramebuffer(GL_FRAMEBUFFER, m_BloomFBO);
+	glViewport(0, 0, m_BW, m_BH);
+	glUseProgram(m_BloomProg);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, m_SceneTex);
+	glUniform1i(m_uBlScene, 0);
+	glUniform2f(m_uBlTexel, 1.f / m_W, 1.f / m_H);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	// 2) 합성
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, m_W, m_H);
-	glDisable(GL_BLEND);
-
 	glUseProgram(m_PostProg);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, m_BloomTex);
+	glUniform1i(m_uPostBloom, 1);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_SceneTex);
 	glUniform1i(m_uScene, 0);
-	glUniform2f(m_uTexel, 1.f / m_W, 1.f / m_H);
 	glUniform3f(m_uFilter, m_FR, m_FG, m_FB);
 	glUniform1f(m_uTime, m_Time);
 	glUniform1f(m_uExposure, 1.75f);
-	glUniform1f(m_uBloomAmt, 2.4f);
+	glUniform1f(m_uBloomAmt, 3.0f);
 	glUniform1f(m_uFade, m_Fade);
 
-	glBindVertexArray(m_PostVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glBindVertexArray(0);
 
@@ -223,18 +265,18 @@ void Renderer::EndFrame()
 
 void Renderer::Flush()
 {
-	if (!m_Initialized && !m_ShapeProg) { m_SV.clear(); m_GV.clear(); return; }
+	if (!m_Initialized && !m_ShapeProg) { m_SVN = 0; m_GV.clear(); return; }
 
-	if (!m_SV.empty())
+	if (m_SVN > 0)
 	{
-		m_VertsLastFrame += (int)(m_SV.size() / 6);
+		m_VertsLastFrame += (int)(m_SVN / 6);
 		glBindVertexArray(m_ShapeVAO);
 		glBindBuffer(GL_ARRAY_BUFFER, m_ShapeVBO);
-		glBufferData(GL_ARRAY_BUFFER, m_SV.size() * sizeof(float), m_SV.data(), GL_STREAM_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, m_SVN * sizeof(float), m_SVBuf, GL_STREAM_DRAW);
 		glUseProgram(m_ShapeProg);
 		glUniform2f(m_uShapeVP, m_W * 0.5f, m_H * 0.5f);
-		glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(m_SV.size() / 6));
-		m_SV.clear();
+		glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(m_SVN / 6));
+		m_SVN = 0;
 	}
 	if (!m_GV.empty())
 	{
@@ -265,7 +307,7 @@ void Renderer::Tri(float x0, float y0, float x1, float y1, float x2, float y2,
 	float r, float g, float b, float a)
 {
 	EnsureMode(M_SHAPE);
-	if (m_SV.size() >= FLUSH_LIMIT) { Flush(); m_Mode = M_SHAPE; }
+	if (m_SVN + 18 > m_SVCap) { Flush(); m_Mode = M_SHAPE; }
 	PushV(x0, y0, r, g, b, a);
 	PushV(x1, y1, r, g, b, a);
 	PushV(x2, y2, r, g, b, a);
@@ -282,7 +324,7 @@ void Renderer::QuadC(float x0, float y0, float x1, float y1, float x2, float y2,
 	float x3, float y3, const float* c)
 {
 	EnsureMode(M_SHAPE);
-	if (m_SV.size() >= FLUSH_LIMIT) { Flush(); m_Mode = M_SHAPE; }
+	if (m_SVN + 36 > m_SVCap) { Flush(); m_Mode = M_SHAPE; }
 	PushV(x0, y0, c[0], c[1], c[2], c[3]);
 	PushV(x1, y1, c[4], c[5], c[6], c[7]);
 	PushV(x2, y2, c[8], c[9], c[10], c[11]);
@@ -336,9 +378,8 @@ void Renderer::Ellipse(float cx, float cy, float rw, float rh, int segs,
 void Renderer::SoftShadow(float cx, float cy, float rw, float rh, float alpha)
 {
 	// 세 겹으로 겹쳐 가장자리를 흐린다
-	Ellipse(cx, cy, rw * 1.42f, rh * 1.42f, 14, 0.f, 0.f, 0.f, alpha * 0.20f);
-	Ellipse(cx, cy, rw * 1.14f, rh * 1.14f, 14, 0.f, 0.f, 0.f, alpha * 0.28f);
-	Ellipse(cx, cy, rw, rh, 16, 0.f, 0.f, 0.f, alpha * 0.44f);
+	Ellipse(cx, cy, rw * 1.34f, rh * 1.34f, 8, 0.f, 0.f, 0.f, alpha * 0.26f);
+	Ellipse(cx, cy, rw, rh, 9, 0.f, 0.f, 0.f, alpha * 0.46f);
 }
 
 /* ---------- 텍스처 ---------- */

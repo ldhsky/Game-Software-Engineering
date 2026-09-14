@@ -63,8 +63,9 @@ private:
 	void EnsureMode(Mode m);
 	inline void PushV(float x, float y, float r, float g, float b, float a)
 	{
-		m_SV.push_back(x); m_SV.push_back(y);
-		m_SV.push_back(r); m_SV.push_back(g); m_SV.push_back(b); m_SV.push_back(a);
+		float* p = m_SVBuf + m_SVN;
+		p[0] = x; p[1] = y; p[2] = r; p[3] = g; p[4] = b; p[5] = a;
+		m_SVN += 6;
 	}
 
 	bool m_Initialized = false;
@@ -80,9 +81,14 @@ private:
 	GLint m_uExposure = -1, m_uBloomAmt = -1, m_uFade = -1;
 
 	GLuint m_FBO = 0, m_SceneTex = 0;
+	GLuint m_BloomFBO = 0, m_BloomTex = 0, m_BloomProg = 0;
+	GLint m_uBlScene = -1, m_uBlTexel = -1, m_uPostBloom = -1;
+	int m_BW = 0, m_BH = 0;
 	GLuint m_Atlas = 0;
 
-	std::vector<float> m_SV;
+	// 도형 정점은 고정 버퍼에 직접 기록한다 (push_back 오버헤드 제거)
+	float* m_SVBuf = 0;
+	size_t m_SVN = 0, m_SVCap = 0;
 	std::vector<float> m_GV;
 	Mode m_Mode = M_NONE;
 

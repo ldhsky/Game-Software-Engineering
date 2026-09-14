@@ -34,7 +34,8 @@ private:
 	void LightAt(float sx, float sy, float* lr, float* lg, float* lb);
 	void Shade(float wx, float wy, float sx, float sy, float* r, float* g, float* b);
 
-	void DrawGround(int tx, int ty, float sx, float sy);
+	float ToneAt(int i, int j);
+	void DrawGround(int tx, int ty, float sx, float sy, float lr, float lg, float lb);
 	void DrawGroundDetail(int tx, int ty, float sx, float sy);
 	void DrawShadow(int tx, int ty, float sx, float sy);
 	void DrawObject(int tx, int ty, float sx, float sy);
@@ -85,7 +86,17 @@ private:
 	char m_Toast[256] = { 0 };
 	float m_ToastTimer = 0.f;
 
-	Light m_Lights[80];
+	// 지면 톤 노이즈 캐시 — 꼭짓점은 인접 타일과 공유되므로 한 번만 계산한다
+	static const int TC = 136;
+	float m_ToneCache[TC * TC];
+	int   m_ToneStamp[TC * TC];
+	int   m_Frame = 0;
+	int   m_TCX0 = 0, m_TCY0 = 0;
+	float m_CullX = 0.f, m_CullY = 0.f;
+	float m_Fps = 0.f, m_FpsAcc = 0.f;
+	int   m_FpsFrames = 0;
+
+	Light m_Lights[64];
 	int m_LightCount = 0;
 	Mote m_Motes[190];
 	Puff m_Puffs[32];

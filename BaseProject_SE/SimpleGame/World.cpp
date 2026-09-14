@@ -195,6 +195,7 @@ World::~World()
 	for (std::unordered_map<long long, Chunk*>::iterator it = m_Map.begin(); it != m_Map.end(); ++it)
 		delete it->second;
 	m_Map.clear();
+	m_Last = 0;
 }
 
 static long long Key(int cx, int cy)
@@ -204,9 +205,11 @@ static long long Key(int cx, int cy)
 
 Chunk* World::Get(int cx, int cy)
 {
+	if (m_Last && m_LastCX == cx && m_LastCY == cy) return m_Last;
 	std::unordered_map<long long, Chunk*>::iterator it = m_Map.find(Key(cx, cy));
-	if (it != m_Map.end()) return it->second;
-	return Generate(cx, cy);
+	Chunk* c = (it != m_Map.end()) ? it->second : Generate(cx, cy);
+	m_Last = c; m_LastCX = cx; m_LastCY = cy;
+	return c;
 }
 
 Chunk* World::Generate(int cx, int cy)
@@ -379,6 +382,7 @@ void World::EnsureAround(float wx, float wy, int radiusChunks)
 		Chunk* c = it->second;
 		if (abs(c->cx - ccx) > radiusChunks + 2 || abs(c->cy - ccy) > radiusChunks + 2)
 		{
+			if (m_Last == c) m_Last = 0;
 			delete c;
 			it = m_Map.erase(it);
 		}

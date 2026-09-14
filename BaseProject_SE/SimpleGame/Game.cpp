@@ -73,6 +73,7 @@ void Game::Init(Renderer* renderer, int windowW, int windowH)
 		m_Motes[i].s = 1.f + Frand() * 2.4f;
 	}
 	for (int i = 0; i < 32; ++i) m_Puffs[i].life = 0.f;
+	for (int i = 0; i < TC * TC; ++i) m_ToneStamp[i] = -1;
 
 	Toast("촌장에게 말을 걸어라.   [E]");
 }
@@ -177,6 +178,8 @@ void Game::Update(float dt)
 {
 	m_Time += dt;
 	if (m_R) m_R->SetTime(m_Time);
+	m_FpsAcc += dt; ++m_FpsFrames;
+	if (m_FpsAcc >= 0.4f) { m_Fps = m_FpsFrames / m_FpsAcc; m_FpsAcc = 0.f; m_FpsFrames = 0; }
 	if (m_State == GS_END) m_EndTimer += dt; else m_Elapsed += dt;
 	if (m_ToastTimer > 0.f) m_ToastTimer -= dt;
 
@@ -251,7 +254,7 @@ void Game::LightAt(float sx, float sy, float* lr, float* lg, float* lb)
 	{
 		float dx = sx - m_Lights[i].sx, dy = sy - m_Lights[i].sy;
 		float d2 = dx * dx + dy * dy;
-		const float R2 = 190.f * 190.f;
+		const float R2 = 168.f * 168.f;
 		if (d2 > R2) continue;
 		float f = 1.f - d2 / R2;
 		f = f * f * m_Lights[i].str;
@@ -272,7 +275,22 @@ void Game::Shade(float wx, float wy, float sx, float sy, float* r, float* g, flo
 
 /* ---------- 지면 ---------- */
 
-void Game::DrawGround(int tx, int ty, float sx, float sy)
+// 꼭짓점 (i+0.5, j+0.5) 의 지면 톤. 인접 네 타일이 공유하므로 프레임당 한 번만 계산한다.
+float Game::ToneAt(int i, int j)
+{
+	int gi = i - m_TCX0, gj = j - m_TCY0;
+	if (gi < 0 || gj < 0 || gi >= TC || gj >= TC)
+		return World_GroundTone(i + 0.5f, j + 0.5f);
+	int k = gj * TC + gi;
+	if (m_ToneStamp[k] != m_Frame)
+	{
+		m_ToneStamp[k] = m_Frame;
+		m_ToneCache[k] = World_GroundTone(i + 0.5f, j + 0.5f);
+	}
+	return m_ToneCache[k];
+}
+
+void Game::DrawGround(int tx, int ty, float sx, float sy, float lr, float lg, float lb)
 {
 	unsigned char g = m_World.G(tx, ty);
 
@@ -288,25 +306,28 @@ void Game::DrawGround(int tx, int ty, float sx, float sy)
 	default:      r = 0.116f; gg = 0.162f; b = 0.124f; break;
 	}
 
-	// 네 꼭짓점의 색을 따로 계산 — 인접 타일과 값을 공유하므로 경계가 사라진다
-	static const float CX[4] = { 0.5f, -0.5f, -0.5f,  0.5f };
-	static const float CY[4] = { 0.5f,  0.5f, -0.5f, -0.5f };
+	// 안개는 타일 중심 한 번, 조명은 호출자가 이미 계산해 넘겨준다
+	float t = FogT((float)tx, (float)ty);
+
+	// 꼭짓점 색만 따로 — 인접 타일과 값을 공유하므로 경계가 사라진다
+	static const int CI[4] = { 0, -1, -1,  0 };
+	static const int CJ[4] = { 0,  0, -1, -1 };
 	float c[16];
 	for (int i = 0; i < 4; ++i)
 	{
-		float wx = tx + CX[i], wy = ty + CY[i];
-		float tone = World_GroundTone(wx, wy);
-		float k = 0.80f + tone * 0.42f;
+		float k = 0.80f + ToneAt(tx + CI[i], ty + CJ[i]) * 0.42f;
 		float rr = r * k, rg = gg * k, rb = b * k;
 		if (g == G_WATER)
 		{
+			float wx = tx + CI[i] + 0.5f, wy = ty + CJ[i] + 0.5f;
 			float w = sinf(m_Time * 0.85f + (wx + wy) * 0.52f) * 0.020f
 				+ sinf(m_Time * 1.75f - (wx - wy) * 0.33f) * 0.013f;
 			rr += w; rg += w * 1.15f; rb += w * 1.9f;
 		}
-		float sxx, syy; ToScreen(wx, wy, &sxx, &syy);
-		Shade(wx, wy, sxx, syy, &rr, &rg, &rb);
-		c[i * 4 + 0] = rr; c[i * 4 + 1] = rg; c[i * 4 + 2] = rb; c[i * 4 + 3] = 1.f;
+		c[i * 4 + 0] = Lerp(rr, FOG_R, t) + lr;
+		c[i * 4 + 1] = Lerp(rg, FOG_G, t) + lg;
+		c[i * 4 + 2] = Lerp(rb, FOG_B, t) + lb;
+		c[i * 4 + 3] = 1.f;
 	}
 	m_R->Diamond4(sx, sy, Iso::TILE_W, Iso::TILE_H, c);
 }
@@ -316,15 +337,16 @@ void Game::DrawGroundDetail(int tx, int ty, float sx, float sy)
 	unsigned char g = m_World.G(tx, ty);
 	unsigned int h = Hsh(tx, ty, 17);
 	float t = FogT((float)tx, (float)ty);
-	if (t > 0.72f) return;                     // 멀리 있는 디테일은 생략
+	if (t > 0.52f) return;                     // 멀리 있는 디테일은 생략
 	float fade = 1.f - t;
 
-	float lr, lg, lb; LightAt(sx, sy, &lr, &lg, &lb);
+	float lr = 0.f, lg = 0.f, lb = 0.f;
+	if (t < 0.34f) LightAt(sx, sy, &lr, &lg, &lb);
 	float sway = sinf(m_Time * 1.1f + tx * 0.6f + ty * 0.35f) * 1.3f;
 
 	if (g == G_GRASS || g == G_MARSH)
 	{
-		int n = (h % 100 < 62) ? 3 : 1;
+		int n = (h % 100 < 46) ? 3 : 1;
 		for (int i = 0; i < n; ++i)
 		{
 			unsigned int hh = Hsh(tx, ty, 31 + i);
@@ -349,7 +371,7 @@ void Game::DrawGroundDetail(int tx, int ty, float sx, float sy)
 				-d, -d, -d, 0.30f);
 		}
 		// 자갈
-		int n = 3 + (h % 3);
+		int n = 2 + (h % 2);
 		for (int i = 0; i < n; ++i)
 		{
 			unsigned int hh = Hsh(tx, ty, 71 + i);
@@ -411,7 +433,7 @@ void Game::DrawShadow(int tx, int ty, float sx, float sy)
 	unsigned char o = m_World.O(tx, ty);
 	if (o == O_NONE) return;
 	float t = FogT((float)tx, (float)ty);
-	if (t > 0.76f) return;
+	if (t > 0.58f) return;
 	float a = (1.f - t) * 0.9f;
 
 	// 광원은 좌상단에 있다고 가정 — 그림자는 우하단으로 눕는다
@@ -566,12 +588,15 @@ void Game::DrawObject(int tx, int ty, float sx, float sy)
 		float base = 30.f + v * 11.f;
 		float cr = 0.070f, cg = 0.132f, cb = 0.094f;
 		Shade((float)tx, (float)ty, sx, sy + base, &cr, &cg, &cb);
-		// 잎덩이 여러 개로 실루엣을 부순다
-		m_R->Ellipse(sx + sway, sy + base + 8.f, 31.f, 19.f, 14, cr * 0.78f, cg * 0.78f, cb * 0.80f, 1.f);
-		m_R->Ellipse(sx - 13.f + sway * 1.2f, sy + base + 17.f, 17.f, 12.f, 12, cr * 0.92f, cg * 0.92f, cb * 0.94f, 1.f);
-		m_R->Ellipse(sx + 13.f + sway * 1.2f, sy + base + 19.f, 16.f, 12.f, 12, cr, cg, cb, 1.f);
-		m_R->Ellipse(sx + sway * 1.5f, sy + base + 26.f, 21.f, 15.f, 13, cr * 1.22f, cg * 1.22f, cb * 1.16f, 1.f);
-		m_R->Ellipse(sx - 4.f + sway * 1.7f, sy + base + 33.f, 12.f, 8.5f, 10, cr * 1.5f, cg * 1.5f, cb * 1.36f, 1.f);
+		// 잎덩이로 실루엣을 부순다 (멀면 개수를 줄인다)
+		m_R->Ellipse(sx + sway, sy + base + 8.f, 31.f, 19.f, 10, cr * 0.78f, cg * 0.78f, cb * 0.80f, 1.f);
+		m_R->Ellipse(sx + sway * 1.5f, sy + base + 26.f, 21.f, 15.f, 9, cr * 1.22f, cg * 1.22f, cb * 1.16f, 1.f);
+		if (t < 0.45f)
+		{
+			m_R->Ellipse(sx - 13.f + sway * 1.2f, sy + base + 17.f, 17.f, 12.f, 8, cr * 0.92f, cg * 0.92f, cb * 0.94f, 1.f);
+			m_R->Ellipse(sx + 13.f + sway * 1.2f, sy + base + 19.f, 16.f, 12.f, 8, cr, cg, cb, 1.f);
+			m_R->Ellipse(sx - 4.f + sway * 1.7f, sy + base + 33.f, 12.f, 8.5f, 8, cr * 1.5f, cg * 1.5f, cb * 1.36f, 1.f);
+		}
 		break;
 	}
 	case O_PINE:
@@ -589,8 +614,9 @@ void Game::DrawObject(int tx, int ty, float sx, float sy)
 			float ox = sway * (i * 0.35f);
 			m_R->Tri(sx - w * 0.5f + ox, y, sx + w * 0.5f + ox, y, sx + ox * 1.2f, y + 25.f,
 				cr * f, cg * f, cb * f);
-			m_R->Tri(sx - w * 0.32f + ox, y + 3.f, sx - w * 0.05f + ox, y + 3.f, sx - w * 0.2f + ox, y + 16.f,
-				cr * f * 1.3f, cg * f * 1.3f, cb * f * 1.22f);
+			if (t < 0.45f)
+				m_R->Tri(sx - w * 0.32f + ox, y + 3.f, sx - w * 0.05f + ox, y + 3.f, sx - w * 0.2f + ox, y + 16.f,
+					cr * f * 1.3f, cg * f * 1.3f, cb * f * 1.22f);
 		}
 		break;
 	}
@@ -813,7 +839,7 @@ void Game::DrawPuffs()
 void Game::DrawMotes()
 {
 	for (int i = 0; i < 190; ++i)
-		m_R->Ellipse(m_Motes[i].x, m_Motes[i].y, m_Motes[i].s, m_Motes[i].s, 6,
+		m_R->Rect(m_Motes[i].x, m_Motes[i].y, m_Motes[i].s * 1.6f, m_Motes[i].s * 1.6f,
 			0.66f, 0.72f, 0.70f, m_Motes[i].a);
 }
 
@@ -828,7 +854,8 @@ void Game::DrawHud()
 	m_R->Rect(-hw + 156.f, hh - 79.f, 300.f, 1.4f, 0.44f, 0.16f, 0.12f, 0.85f);
 	sprintf_s(buf, "「미납」  기록 %d / 3", m_RecordCount);
 	m_F.DrawShadowed(-hw + 22.f, hh - 20.f, buf, 0.88f, 0.82f, 0.72f);
-	sprintf_s(buf, "장부 조각 %d        %02d:%02d", m_Fragments, (int)m_Elapsed / 60, (int)m_Elapsed % 60);
+	sprintf_s(buf, "장부 조각 %d        %02d:%02d        %.0f FPS",
+		m_Fragments, (int)m_Elapsed / 60, (int)m_Elapsed % 60, m_Fps);
 	m_F.DrawShadowed(-hw + 22.f, hh - 46.f, buf, 0.56f, 0.58f, 0.55f);
 	m_F.DrawShadowed(-hw + 22.f, -hh + 34.f,
 		"WASD 이동   Space 달리기   E 상호작용   Tab 장부   Esc 종료", 0.44f, 0.48f, 0.46f);
@@ -869,7 +896,8 @@ void Game::DrawHud()
 		m_F.DrawShadowed(-296.f, -38.f, buf, 0.62f, 0.64f, 0.60f);
 		m_F.DrawShadowed(-296.f, -74.f,
 			m_RecordCount >= 3 ? "광장의 촌장에게 보고하라." : "무엇이 빠졌는지 찾아라.", 0.58f, 0.60f, 0.58f);
-		sprintf_s(buf, "불러온 청크 %d      정점 %d", m_World.LoadedChunks(), m_R->LastVertexCount());
+		sprintf_s(buf, "%.0f FPS      불러온 청크 %d      정점 %d",
+		m_Fps, m_World.LoadedChunks(), m_R->LastVertexCount());
 		m_F.DrawShadowed(-296.f, -112.f, buf, 0.30f, 0.33f, 0.32f);
 	}
 
@@ -899,6 +927,11 @@ void Game::DrawHud()
 void Game::Render()
 {
 	m_R->BeginFrame(0.028f, 0.042f, 0.056f);
+	++m_Frame;
+
+	// 월드 좌표 AABB는 실제 화면보다 6배 넓다. 그래서 타일마다 화면 밖인지 직접 검사한다.
+	m_CullX = m_W * 0.5f + Iso::TILE_W;
+	m_CullY = m_H * 0.5f + Iso::TILE_H * 4.f;
 
 	float hw = m_W * 0.5f + Iso::TILE_W * 2.f;
 	float hh = m_H * 0.5f + Iso::TILE_H * 6.f;
@@ -915,15 +948,21 @@ void Game::Render()
 		if (iy - 1 < minY) minY = iy - 1;
 		if (iy + 2 > maxY) maxY = iy + 2;
 	}
+	m_TCX0 = minX - 1;
+	m_TCY0 = minY - 1;
 
-	// 1) 광원 수집
+	// 화면 밖 판정 — 타일의 화면 좌표로 직접 자른다
+	#define VISIBLE(sx, sy) ((sx) > -m_CullX && (sx) < m_CullX && (sy) > -m_CullY && (sy) < m_CullY)
+
+	// 1) 광원 수집 (화면 안의 등불·창문만)
 	m_LightCount = 0;
-	for (int ty = minY; ty <= maxY && m_LightCount < 80; ++ty)
-		for (int tx = minX; tx <= maxX && m_LightCount < 80; ++tx)
+	for (int ty = minY; ty <= maxY && m_LightCount < 64; ++ty)
+		for (int tx = minX; tx <= maxX && m_LightCount < 64; ++tx)
 		{
+			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
+			if (!VISIBLE(sx, sy)) continue;
 			unsigned char o = m_World.O(tx, ty);
 			if (o != O_LAMP && o != O_HOUSE && o != O_RUIN) continue;
-			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
 			Light& L = m_Lights[m_LightCount++];
 			L.sx = sx + (o == O_LAMP ? 8.f : 0.f);
 			L.sy = sy + (o == O_LAMP ? 50.f : 16.f);
@@ -931,17 +970,20 @@ void Game::Render()
 			else { L.r = 0.30f; L.g = 0.20f; L.b = 0.085f; L.str = (o == O_LAMP) ? 1.f : 0.52f; }
 		}
 
-	// 2) 지면 — 전부 먼저 그린다. (앞쪽 타일이 캐릭터를 덮는 문제 해결)
+	// 2) 지면 — 전부 먼저 그린다 (앞쪽 타일이 캐릭터를 덮는 문제 해결)
 	for (int ty = minY; ty <= maxY; ++ty)
 		for (int tx = minX; tx <= maxX; ++tx)
 		{
 			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
-			DrawGround(tx, ty, sx, sy);
+			if (!VISIBLE(sx, sy)) continue;
+			float lr, lg, lb; LightAt(sx, sy, &lr, &lg, &lb);   // 타일당 1회
+			DrawGround(tx, ty, sx, sy, lr, lg, lb);
 		}
 	for (int ty = minY; ty <= maxY; ++ty)
 		for (int tx = minX; tx <= maxX; ++tx)
 		{
 			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
+			if (!VISIBLE(sx, sy)) continue;
 			DrawGroundDetail(tx, ty, sx, sy);
 		}
 
@@ -950,17 +992,20 @@ void Game::Render()
 		for (int tx = minX; tx <= maxX; ++tx)
 		{
 			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
+			if (!VISIBLE(sx, sy)) continue;
 			DrawShadow(tx, ty, sx, sy);
 		}
 	for (int i = 0; i < NPC_COUNT; ++i)
 	{
 		float sx, sy; ToScreen(m_World.npcs[i].hx, m_World.npcs[i].hy, &sx, &sy);
+		if (!VISIBLE(sx, sy)) continue;
 		m_R->SoftShadow(sx + 5.f, sy - 1.f, 8.5f, 4.2f, (1.f - FogT(m_World.npcs[i].hx, m_World.npcs[i].hy)));
 	}
 	for (int i = 0; i < m_Beasts.Count(); ++i)
 	{
 		const Beast& b = m_Beasts.At(i);
 		float sx, sy; ToScreen(b.x, b.y, &sx, &sy);
+		if (!VISIBLE(sx, sy)) continue;
 		m_R->SoftShadow(sx + 5.f, sy - 1.f, 11.f, 4.6f, (1.f - FogT(b.x, b.y)) * 0.9f);
 	}
 	{
@@ -977,17 +1022,26 @@ void Game::Render()
 			int ty = s - tx;
 			if (ty < minY || ty > maxY) continue;
 			float sx, sy; ToScreen((float)tx, (float)ty, &sx, &sy);
+			if (!VISIBLE(sx, sy)) continue;
 			DrawObject(tx, ty, sx, sy);
 		}
 		for (int i = 0; i < NPC_COUNT; ++i)
-			if ((int)floorf(m_World.npcs[i].hx + m_World.npcs[i].hy) == s) DrawNpc(i);
+			if ((int)floorf(m_World.npcs[i].hx + m_World.npcs[i].hy) == s)
+			{
+				float sx, sy; ToScreen(m_World.npcs[i].hx, m_World.npcs[i].hy, &sx, &sy);
+				if (VISIBLE(sx, sy)) DrawNpc(i);
+			}
 		for (int i = 0; i < m_Beasts.Count(); ++i)
 		{
 			const Beast& b = m_Beasts.At(i);
-			if ((int)floorf(b.x + b.y) == s) DrawBeast(i);
+			if ((int)floorf(b.x + b.y) != s) continue;
+			float sx, sy; ToScreen(b.x, b.y, &sx, &sy);
+			if (VISIBLE(sx, sy)) DrawBeast(i);
 		}
 		if ((int)floorf(m_PX + m_PY) == s) DrawPlayer();
 	}
+
+	#undef VISIBLE
 
 	DrawMotes();
 	DrawHud();

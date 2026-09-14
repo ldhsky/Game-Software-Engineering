@@ -72,6 +72,9 @@ private:
 
 	std::unordered_map<long long, Chunk*> m_Map;
 	std::unordered_set<long long> m_Taken;
+	// 직전 조회 청크 — 인접 타일 조회가 대부분이라 해시 탐색을 거의 없앤다
+	Chunk* m_Last = 0;
+	int m_LastCX = 0, m_LastCY = 0;
 };
 
 const char* const* World_ElderIntro(int* count);
